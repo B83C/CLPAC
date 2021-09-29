@@ -3,3 +3,19 @@
 #define VAR_LOG "/var/log/clpac/"
 
 #define CLPAC_ROOT "/var/clpac"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#define DIRENT_MAX_BUF 16384

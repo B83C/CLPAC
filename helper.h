@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <linux/fcntl.h>
+#include <dirent.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,7 +24,8 @@
 })
 
 #define ERR_BUF 0
-char* err[] = {"Buffer overflow detected!\n!"};
+#define ERR_NOBUF 1
+char* err[] = {"Buffer overflow detected!\n", "Buffer allocation failed\n"};
 #define EXIT_ERROR(x) ({ \
 	fprintf(stderr, err[x]); \
 	exit(EXIT_FAILURE); \
