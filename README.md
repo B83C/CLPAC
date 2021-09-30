@@ -1,5 +1,5 @@
-#CLPAC
-##Core / C LFS Package Manager
+# CLPAC
+## Core / C LFS Package Manager
 
 This is a minimalistic symlink-based package manager to ease installation and removal of source files.
 
