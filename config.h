@@ -18,4 +18,5 @@
 
 
 
+#define DEBUG
 #define DIRENT_MAX_BUF 16384

@@ -10,6 +10,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <stddef.h>
+
+#include <errno.h>
 
 #define PATH_MAX 256
 #define not_root() ({ \
@@ -22,6 +25,13 @@
 	return 1; \
     }\
 })
+
+#ifdef DEBUG 
+#define DEBUGI(fmt, ...) \
+	printf(fmt, __VA_ARGS__) 
+#else
+#define DEBUGI(fmt, ...)
+#endif
 
 #define ERR_BUF 0
 #define ERR_NOBUF 1
