@@ -1,8 +1,5 @@
 #include "helper.h"
 
-int pkgfd;
-int rootfd;
-
 struct linux_dirent64 {
     uint64_t	    d_ino;
     uint64_t	    d_off;
@@ -16,24 +13,35 @@ struct ep_path {
     char    path[PATH_MAX - 1];
 }; 
 
+char pkgdent[DIRENT_MAX_BUF] = {0};
 //powerf of 2 please
 #define EP_RINGBUF_SIZE 512
-struct ep_path eprb[EP_RINGBUF_SIZE];
+struct ep_path eprb[EP_RINGBUF_SIZE] = {0};
 int ephead_off, eptail_off = 0;
 
+#define EP_INC(x) ({ \
+	x = (x + 1) & (EP_RINGBUF_SIZE - 1); \
+	})
 #define EP_PUSH(x, n) ({ \
 	struct ep_path* eptail = eprb + eptail_off; \
 	memcpy(eptail->path, x, n); \
-	*(eptail->path + n + 1) = 0; \
+	*(eptail->path + n) = 0; \
 	eptail->len = n; \
-	eptail_off = (eptail_off + 1) & (EP_RINGBUF_SIZE - 1); \
+	EP_INC(eptail_off); \
 	})    
 #define EP_POP(x, n) ({ \
 	struct ep_path* ephead = eprb + ephead_off; \
-	x = ephead->path; \
-	n = ephead->n; \
-	ephead_off = (ephead_off + 1) & (EP_RINGBUF_SIZE - 1); \
+	n = ephead->len; \
+	*(x + n) = 0; \
+	memcpy(x, ephead->path, n); \
+	EP_INC(ephead_off); \
 	})
+//#define EP_POP(x, n) ({ \
+//	struct ep_path* ephead = eprb + ephead_off; \
+//	x = ephead->path; \
+//	n = ephead->n; \
+//	EP_INC(ephead_off); \
+//	})
 
 static inline
 void usage(char* path) {
@@ -51,7 +59,7 @@ int main(int argc, char** argv) {
 	usage(*argv);
 
     for(int i = 1; i < argc; i++) {
-	register uint16_t res = *((uint16_t*)(*(argv + i))) ^ 0x2D2D;
+	register uint16_t res = *((uint16_t*)(*(argv + i))) ^ CHR2('-', '-');
 
 	if(res == 0)
 	{
@@ -81,48 +89,50 @@ int main(int argc, char** argv) {
 	*tmp = '/';
 	tmp = mempcpy(tmp + 1, *(argv + 2), strlen(*(argv + 2)));
     }
-    *tmp = 0;
-    int path_slen = tmp - path;
+    *(uint16_t*)tmp = CHR2('/', 0);
+    int path_slen = tmp - path + 1;
 
-    pkgfd = open(path, O_PATH);
+    int pkgfd = open(path, O_PATH);
     if(pkgfd < 0) {
 	fprintf(stderr, "%s does not exist!\n", path);
 	exit(EXIT_FAILURE);
     }
 
-    char* pkgdent = calloc(DIRENT_MAX_BUF, 1);
-    if(!pkgdent)
-	EXIT_ERROR(ERR_NOBUF);
+    struct open_how oh = {.flags= O_DIRECTORY, .resolve = RESOLVE_IN_ROOT};
+    EP_INC(eptail_off);
 
-    EP_PUSH(".", 1);
-
+    char* pk = path + path_slen;
     do {
-	char* pk;
 	int len;
 	EP_POP(pk, len);
 	register int bufcnt = 0;
-	int tmp_ = openat(pkgfd, pk, O_DIRECTORY);
-	*(pk + len) = '/';
-	DEBUGI("Pk %s tmp %d\n", pk, tmp_);
+	int tmp_ = syscall(SYS_openat2, pkgfd, pk - 1, &oh, sizeof(struct open_how));
+
+	DEBUGI("Pk at %s len : %d\n", pk - 1, len);
+
 	while((bufcnt = getdents64(tmp_, pkgdent, DIRENT_MAX_BUF)) > 0) {
 	    int off = 0;
 	    while(off < bufcnt) {
 		struct linux_dirent64* dent = pkgdent + off;
-		int tmp_result = *((uint16_t*)(dent->d_name)) ^ 0x2e2e;
+		int tmp_result = *((uint16_t*)(dent->d_name)) ^ CHR2('.', '.');
 		if(tmp_result == 0 || (tmp_result & 0xFF) == 0) goto next;
-		DEBUGI("Found %s\n", dent->d_name);
-		register int len_ = dent->d_reclen - offsetof(struct linux_dirent64, d_name);
-		register char* addr = len_ + memcpy(pk + len + 1, dent->d_name, len_);
-		*addr = 0;
-		*(path + path_slen) = '/';
-		memcpy(path + path_slen + 1 , pk, len_ + len + 2);
-		DEBUGI("Symlinking %s to %s\n", pk, path);
-		if(symlink(path, pk) && errno == EEXIST) {
+
+		DEBUGI("Found %s len %d \n", dent->d_name, strlen(dent->d_name));
+
+		register int len_ = dent->d_reclen - offsetof(struct linux_dirent64, d_name) - 2;
+		register char* addr = len_ + memcpy(pk + len, dent->d_name, len_);
+		*(uint16_t*)addr = 0;
+
+		DEBUGI("Symlinking %s to %s\n", pk - 1, path);
+
+		if(symlink(path, pk - 1) && errno == EEXIST) {
 		    if(dent->d_type == DT_DIR) {
-			EP_PUSH(pk, len_);
+			*addr = '/';
+			EP_PUSH(pk, len_ + len + 1);
+		    DEBUGI("last Pk at %s len : %d\n", pk, len_ + 1);
 		    }
 		    else if(dent->d_type == DT_REG) {
-			printf("Duplicated file at %s\n", pk);
+			DEBUGI("Duplicated file at %s\n", pk);
 		    }
 		}
 next:
